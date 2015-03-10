@@ -6,170 +6,201 @@
 
 package assignment4;
 
-import com.mysql.jdbc.Connection;
+import credentials.credentials;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.sql.DriverManager;
+import java.io.StringReader;
+import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.json.Json;
+import javax.json.stream.JsonParser;
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import org.json.simple.JSONArray;
+import javax.ws.rs.Consumes;
+import javax.ws.rs.DELETE;
+import javax.ws.rs.GET;
+import static javax.ws.rs.HttpMethod.PUT;
+import javax.ws.rs.POST;
+import javax.ws.rs.PUT;
+import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.Produces;
+import org.json.simple.JSONValue;
 
 /**
  *
  * @author c0643680
  */
-@WebServlet("/products")
-public class ProductServlet extends HttpServlet {
+//@WebServlet("/product")
+//public class ProductServlet  {
+/**
+ * Processes requests for both HTTP <code>GET</code> and <code>POST</code>
+ * methods.
+ *
+ * @param request servlet request
+ * @param response servlet response
+ * @throws ServletException if a servlet-specific error occurs
+ * @throws IOException if an I/O error occurs
+ */
+@Path("/product")
+public class ProductServlet {
 
-    private Connection getConnection() throws SQLException {
-        Connection conn = null;
-        try {
-            Class.forName("com.mysql.jdbc.Driver");
-            String jdbc = "jdbc:mysql://localhost/product";
-            conn = (Connection) DriverManager.getConnection(jdbc, "root", "");
-        } catch (ClassNotFoundException ex) {
-            Logger.getLogger(ProductServlet.class.getName()).log(Level.SEVERE, null, ex);
-        }
-        return conn;
+    @GET
+    @Produces("application/json")
+    public String doGet() {
+        String str = getResults("SELECT * FROM product");
+        return str;
     }
 
+    @GET
+    @Path("{id}")
+    @Produces("application/json")
+    public String doGet(@PathParam("id") String id) {
+        String str = getResults("SELECT * FROM product where productID = ?", id);
+        return str;
+    }
+
+
+    /**
+     * json format taken from
+     * https://code.google.com/p/json-simple/wiki/EncodingExamples
+     *
+     * @param query
+     * @param params
+     * @return
+     */
     private String getResults(String query, String... params) {
-        String result = new String();
-        try (Connection conn = getConnection()) {
+        StringBuilder sb = new StringBuilder();
+        String myString = "";
+        try (java.sql.Connection conn = credentials.getConnection()) {
             PreparedStatement pstmt = conn.prepareStatement(query);
             for (int i = 1; i <= params.length; i++) {
                 pstmt.setString(i, params[i - 1]);
             }
+
             ResultSet rs = pstmt.executeQuery();
-            JSONArray productArr = new JSONArray();
+            // sb.append("[");
+            List list = new LinkedList();
             while (rs.next()) {
-                Map productMap = new LinkedHashMap();
-                productMap.put("productID", rs.getInt("productID"));
-                productMap.put("name", rs.getString("name"));
-                productMap.put("description", rs.getString("description"));
-                productMap.put("quantity", rs.getInt("quantity"));
-                productArr.add(productMap);
+                //sb.append(String.format("{ \"productId\" : %s , \"name\" : \"%s\", \"description\" : \"%s\", \"quantity\" : %s }" + ",\n", rs.getInt("productID"), rs.getString("name"), rs.getString("description"), rs.getInt("quantity")));
+                //sb.append(", ");
+
+                Map map = new LinkedHashMap();
+                map.put("productID", rs.getInt("productID"));
+                map.put("name", rs.getString("name"));
+                map.put("description", rs.getString("description"));
+                map.put("quantity", rs.getInt("quantity"));
+
+                list.add(map);
+
             }
-            result = productArr.toString();
+            myString = JSONValue.toJSONString(list);
+            //sb.delete(sb.length() - 2, sb.length() - 1);
+            //sb.append("]");
         } catch (SQLException ex) {
             Logger.getLogger(ProductServlet.class.getName()).log(Level.SEVERE, null, ex);
         }
-        return result.replace("},", "},\n");
+        return myString.replace("},", "},\n");
     }
 
-    /**
-     * Handles the HTTP <code>GET</code> method.
-     *
-     * @param request servlet request
-     * @param response servlet response
-     */
-    @Override
-    protected void doGet(HttpServletRequest request, HttpServletResponse response) {
-        try (PrintWriter out = response.getWriter()) {
-            if (!request.getParameterNames().hasMoreElements()) {
-                out.println(getResults("SELECT * FROM productdetails"));
-            } else {
-                int productID = Integer.parseInt(request.getParameter("productID"));
-                out.println(getResults("SELECT * FROM productdetails WHERE productID = ?", String.valueOf(productID)));
+    @POST
+    @Consumes("application/json")
+    public void doPost(String str) {
+        JsonParser parser = Json.createParser(new StringReader(str));
+        Map<String, String> map = new HashMap<>();
+        String name = "", value;
+
+        while (parser.hasNext()) {
+            JsonParser.Event evt = parser.next();
+            switch (evt) {
+                case KEY_NAME:
+                    name = parser.getString();
+                    break;
+                case VALUE_STRING:
+
+                    value = parser.getString();
+                    map.put(name, value);
+                    break;
+                case VALUE_NUMBER:
+                    value = Integer.toString(parser.getInt());
+                    map.put(name, value);
+                    break;
             }
-        } catch (IOException ex) {
-            Logger.getLogger(ProductServlet.class.getName()).log(Level.SEVERE, null, ex);
         }
+        System.out.println(map);
+        String str1 = map.get("name");
+        String description = map.get("description");
+        String quantity = map.get("quantity");
+        doUpdate("insert into product ( name, description, quantity) values ( ?, ?, ?)", str1, description, quantity);
     }
 
-    /**
-     * Handles the HTTP <code>POST</code> method.
-     *
-     * @param request servlet request
-     * @param response servlet response
-     * @throws ServletException if a servlet-specific error occurs
-     * @throws IOException if an I/O error occurs
-     */
-    @Override
-    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException {
-        Set<String> keySet = request.getParameterMap().keySet();
-        try (PrintWriter out = response.getWriter()) {
-            Connection conn = getConnection();
-            if (keySet.contains("name") && keySet.contains("description") && keySet.contains("quantity")) {
-                PreparedStatement pstmt = conn.prepareStatement("INSERT INTO `productdetails`(`productID`, `name`, `description`, `quantity`) "
-                        + "VALUES (null, '" + request.getParameter("name") + "', '"
-                        + request.getParameter("description") + "', "
-                        + request.getParameter("quantity") + ");"
-                );
-                try {
-                    pstmt.executeUpdate();
-                    request.getParameter("productID");
-                    doGet(request, response);
-                } catch (SQLException ex) {
-                    Logger.getLogger(ProductServlet.class.getName()).log(Level.SEVERE, null, ex);
-                    out.println("Data inserted Error");
-                }
-            } else {
-                out.println("Not enough data to input");
+    private int doUpdate(String query, String... params) {
+        int numChanges = 0;
+        try (java.sql.Connection conn = credentials.getConnection()) {
+            PreparedStatement pstmt = conn.prepareStatement(query);
+            for (int i = 1; i <= params.length; i++) {
+                pstmt.setString(i, params[i - 1]);
             }
+            numChanges = pstmt.executeUpdate();
         } catch (SQLException ex) {
             Logger.getLogger(ProductServlet.class.getName()).log(Level.SEVERE, null, ex);
         }
+        return numChanges;
     }
 
-    @Override
-    protected void doPut(HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException {
-        Set<String> keySet = request.getParameterMap().keySet();
-        try (PrintWriter out = response.getWriter()) {
-            Connection conn = getConnection();
-            if (keySet.contains("productID") && keySet.contains("name") && keySet.contains("description") && keySet.contains("quantity")) {
-                PreparedStatement pstmt = conn.prepareStatement("UPDATE `product` SET `name`='"
-                        + request.getParameter("name") + "',`description`='"
-                        + request.getParameter("description")
-                        + "',`quantity`=" + request.getParameter("quantity")
-                        + " WHERE `productID`=" + request.getParameter("productID"));
-                try {
-                    pstmt.executeUpdate();
-                    doGet(request, response); //shows updated row
-                } catch (SQLException ex) {
-                    Logger.getLogger(ProductServlet.class.getName()).log(Level.SEVERE, null, ex);
-                    out.println("Error putting values.");
-                }
-            } else {
-                out.println("Not enough data to update");
+    @PUT
+    @Path("{id}")
+    @Consumes("application/json")
+    public void doPut(@PathParam("id") String id, String str) {
+        JsonParser parser = Json.createParser(new StringReader(str));
+        Map<String, String> map = new HashMap<>();
+        String name = "", value;
+        while (parser.hasNext()) {
+            JsonParser.Event event = parser.next();
+            switch (event) {
+                case KEY_NAME:
+                    name = parser.getString();
+                    break;
+                case VALUE_STRING:
+                    value = parser.getString();
+                    map.put(name, value);
+                    break;
+                case VALUE_NUMBER:
+                    value = Integer.toString(parser.getInt());
+                    map.put(name, value);
+                    break;
             }
-        } catch (SQLException ex) {
-            Logger.getLogger(ProductServlet.class.getName()).log(Level.SEVERE, null, ex);
         }
+        System.out.println(map);
+
+        String str1 = map.get("name");
+        String description = map.get("description");
+        String quantity = map.get("quantity");
+        doUpdate("update product set productId = ?, name = ?, description = ?, quantity = ? where productID = ?", id, str1, description, quantity, id);
+
     }
 
-    @Override
-    protected void doDelete(HttpServletRequest request, HttpServletResponse response) throws IOException {
-        Set<String> keySet = request.getParameterMap().keySet();
-        try (PrintWriter out = response.getWriter()) {
-            Connection conn = getConnection();
-            if (keySet.contains("productID")) {
-                PreparedStatement pstmt = conn.prepareStatement("DELETE FROM `productdetails` WHERE `productID`=" + request.getParameter("productID"));
-                try {
-                    pstmt.executeUpdate();
-                } catch (SQLException ex) {
-                    Logger.getLogger(ProductServlet.class.getName()).log(Level.SEVERE, null, ex);
-                    out.println("Error in deleting the product.");
-                }
-            } else {
-                out.println("Error: in data to delete");
-            }
-        } catch (SQLException ex) {
-            Logger.getLogger(ProductServlet.class.getName()).log(Level.SEVERE, null, ex);
-        }
+
+    @DELETE
+    @Path("{id}")
+    public void doDelete(@PathParam("id") String id, String str) {
+        doUpdate("delete from product where productId = ?", id);
     }
 
 }
+
 
 
